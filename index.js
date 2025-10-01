@@ -81,6 +81,13 @@ async function registerCommands() {
       )
       .addStringOption((option) =>
         option
+          .setName("createdTag")
+          .setDescription(
+            "Tag ID to apply when thread is created (if the post has an excluded tag it won't be applied)",
+          ),
+      )
+      .addStringOption((option) =>
+        option
           .setName("excludetags")
           .setDescription(
             "list of Tag IDs that specifies which posts should be excluded from auto closing (separated with ,)",
@@ -121,6 +128,7 @@ async function loadExistingThreads() {
     const threads = await forum.threads.fetchActive();
 
     for (const [id, thread] of threads.threads) {
+      if (checkAnyExcludedTags(thread.appliedTags)) return;
       threadOwners.set(id, thread.ownerId);
     }
 
@@ -152,6 +160,13 @@ function startCheckInterval() {
 client.on("threadCreate", async (thread) => {
   if (thread.parentId !== config.supportForumChannelId) return;
   if (checkAnyExcludedTags(thread.appliedTags)) return;
+  if (config?.createdTag) {
+    try {
+      applyTag(thread, config.createdTag);
+    } catch (e) {
+      console.error(`failed to add tag: ${config?.createdTag} for ${thread.id} upon it's creation:\n${e}`);
+    }
+  }
   threadOwners.set(thread.id, thread.ownerId);
 
   const embed = new EmbedBuilder()
@@ -238,13 +253,13 @@ async function handleConfigMessageCommand(interaction) {
   const description = interaction.options.getString("text");
   config.SupportThreadMessage = description;
   const embed = new EmbedBuilder()
-  .setColor(0x5865f2)
-  .setTitle("Support Thread (Preview)")
-  .setDescription(
-    config?.SupportThreadMessage ?? "Thank you for creating a support thread! Our team will assist you shortly.\n\nUse the button below to close this thread when your issue is resolved."
-  )
-  .setTimestamp();
-  interaction.reply({embeds : [embed], flags: MessageFlags.Ephemeral});
+    .setColor(0x5865f2)
+    .setTitle("Support Thread (Preview)")
+    .setDescription(
+      config?.SupportThreadMessage ?? "Thank you for creating a support thread! Our team will assist you shortly.\n\nUse the button below to close this thread when your issue is resolved."
+    )
+    .setTimestamp();
+  interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
   fs.writeFileSync("config.json", JSON.stringify(config, null, 2));
 }
 
@@ -274,8 +289,10 @@ async function handleConfigCommand(interaction) {
   const resolvedTag = interaction.options.getString("resolvedtag");
   const inactiveTag = interaction.options.getString("inactivetag");
   const excludedTags = interaction.options.getString("excludetags");
+  const createTag = interaction.options.getString("createdTag");
 
-  if (!forum && !hours && !supportRole && !resolvedTag && !inactiveTag && !excludedTags) {
+
+  if (!forum && !hours && !supportRole && !resolvedTag && !inactiveTag && !excludedTags && !createTag) {
     return interaction.reply({
       content: "Provide at least one option to update",
       flags: MessageFlags.Ephemeral,
@@ -287,7 +304,8 @@ async function handleConfigCommand(interaction) {
   if (supportRole) config.supportRoleId = supportRole.id;
   if (resolvedTag) config.resolvedTagId = resolvedTag;
   if (inactiveTag) config.inactiveTagId = inactiveTag;
-  if (excludedTags) config.excludedTags = excludedTags.split(',').map(tag => tag.trim())
+  if (excludedTags) config.excludedTags = excludedTags.split(',').map(tag => tag.trim());
+  if (createTag) config.createdTag = createTag;
 
   fs.writeFileSync("config.json", JSON.stringify(config, null, 2));
 
@@ -301,7 +319,8 @@ async function handleConfigCommand(interaction) {
     supportRole && `Support Role: ${supportRole.name}`,
     resolvedTag && `Resolved Tag: ${resolvedTag}`,
     inactiveTag && `Inactive Tag: ${inactiveTag}`,
-    excludedTags&&  `excluded Tags: ${excludedTags}`
+    createTag   && `create Tag: ${createTag}`,
+    excludedTags&& `excluded Tags: ${excludedTags}`
   ]
     .filter(Boolean)
     .join(" | ");
@@ -329,6 +348,7 @@ async function checkInactivity() {
 
     for (const [id, thread] of threads.threads) {
       if (thread.archived) continue;
+      if (checkAnyExcludedTags(thread.appliedTags)) return;
 
       let lastTime = lastActivity.get(id);
       if (!lastTime) {
