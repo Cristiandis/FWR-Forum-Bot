@@ -239,12 +239,13 @@ async function handleConfigMessageCommand(interaction) {
   config.SupportThreadMessage = description;
   const embed = new EmbedBuilder()
   .setColor(0x5865f2)
-  .setTitle("Support Thread")
+  .setTitle("Support Thread (Preview)")
   .setDescription(
     config?.SupportThreadMessage ?? "Thank you for creating a support thread! Our team will assist you shortly.\n\nUse the button below to close this thread when your issue is resolved."
   )
   .setTimestamp();
-  interaction.reply({embeds : [embed], ephemeral: true});
+  interaction.reply({embeds : [embed], flags: MessageFlags.Ephemeral});
+  fs.writeFileSync("config.json", JSON.stringify(config, null, 2));
 }
 
 async function handleCloseCommand(interaction) {
