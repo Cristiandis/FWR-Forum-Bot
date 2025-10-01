@@ -8,6 +8,8 @@ const {
   ButtonBuilder,
   ButtonStyle,
   MessageFlags,
+  ThreadChannel,
+  Interaction
 } = require("discord.js");
 const fs = require("fs");
 require("dotenv").config();
@@ -34,6 +36,10 @@ client.once("clientReady", async () => {
   await loadExistingThreads();
   startCheckInterval();
 });
+// utility function
+function checkAnyExcludedTags(appliedTags) {
+  return (config?.excludedTags ?? []).some(tag => appliedTags.includes(tag))
+}
 
 async function registerCommands() {
   const commands = [
@@ -71,6 +77,24 @@ async function registerCommands() {
           .setName("inactivetag")
           .setDescription(
             "Tag ID to apply when thread is closed due to inactivity",
+          ),
+      )
+      .addStringOption((option) =>
+        option
+          .setName("excludetags")
+          .setDescription(
+            "list of Tag IDs that specifies which posts should be excluded from auto closing (separated with ,)",
+          ),
+      )
+      .setDefaultMemberPermissions("0"),
+    new SlashCommandBuilder()
+      .setName("config-message")
+      .setDescription("Configure the thread message upon opening a thread (Admin only)")
+      .addStringOption((option) =>
+        option
+          .setName("text")
+          .setDescription(
+            "embed description to be sent upon thread creation",
           ),
       )
       .setDefaultMemberPermissions("0"),
@@ -122,17 +146,19 @@ function startCheckInterval() {
   checkInterval = setInterval(checkInactivity, checkFrequency);
   checkInactivity();
 }
-
+/**
+ * @param {ThreadChannel} thread - The thread that was created.
+ */
 client.on("threadCreate", async (thread) => {
   if (thread.parentId !== config.supportForumChannelId) return;
-
+  if (checkAnyExcludedTags(thread.appliedTags)) return;
   threadOwners.set(thread.id, thread.ownerId);
 
   const embed = new EmbedBuilder()
     .setColor(0x5865f2)
     .setTitle("Support Thread")
     .setDescription(
-      "Thank you for creating a support thread! Our team will assist you shortly.\n\nUse the button below to close this thread when your issue is resolved.",
+      config?.SupportThreadMessage ?? "Thank you for creating a support thread! Our team will assist you shortly.\n\nUse the button below to close this thread when your issue is resolved."
     )
     .setTimestamp();
 
@@ -152,7 +178,8 @@ client.on("messageCreate", (message) => {
 
   if (
     message.channel.type === ChannelType.PublicThread &&
-    message.channel.parentId === config.supportForumChannelId
+    message.channel.parentId === config.supportForumChannelId &&
+    checkAnyExcludedTags(message.channel.appliedTags)
   ) {
     lastActivity.set(message.channel.id, Date.now());
   }
@@ -200,7 +227,25 @@ async function handleCommandInteraction(interaction) {
     await handleCloseCommand(interaction);
   } else if (interaction.commandName === "config") {
     await handleConfigCommand(interaction);
+  } else if (interaction.commandName === "config-message") {
+    await handleConfigMessageCommand(interaction)
   }
+}
+/**
+ * @param {Interaction} interaction
+ */
+async function handleConfigMessageCommand(interaction) {
+  const description = interaction.options.getString("text");
+  config.SupportThreadMessage = description;
+  const embed = new EmbedBuilder()
+  .setColor(0x5865f2)
+  .setTitle("Support Thread (Preview)")
+  .setDescription(
+    config?.SupportThreadMessage ?? "Thank you for creating a support thread! Our team will assist you shortly.\n\nUse the button below to close this thread when your issue is resolved."
+  )
+  .setTimestamp();
+  interaction.reply({embeds : [embed], flags: MessageFlags.Ephemeral});
+  fs.writeFileSync("config.json", JSON.stringify(config, null, 2));
 }
 
 async function handleCloseCommand(interaction) {
@@ -228,8 +273,9 @@ async function handleConfigCommand(interaction) {
   const supportRole = interaction.options.getRole("supportrole");
   const resolvedTag = interaction.options.getString("resolvedtag");
   const inactiveTag = interaction.options.getString("inactivetag");
+  const excludedTags = interaction.options.getString("excludetags");
 
-  if (!forum && !hours && !supportRole && !resolvedTag && !inactiveTag) {
+  if (!forum && !hours && !supportRole && !resolvedTag && !inactiveTag && !excludedTags) {
     return interaction.reply({
       content: "Provide at least one option to update",
       flags: MessageFlags.Ephemeral,
@@ -241,6 +287,7 @@ async function handleConfigCommand(interaction) {
   if (supportRole) config.supportRoleId = supportRole.id;
   if (resolvedTag) config.resolvedTagId = resolvedTag;
   if (inactiveTag) config.inactiveTagId = inactiveTag;
+  if (excludedTags) config.excludedTags = excludedTags.split(',').map(tag => tag.trim())
 
   fs.writeFileSync("config.json", JSON.stringify(config, null, 2));
 
@@ -254,6 +301,7 @@ async function handleConfigCommand(interaction) {
     supportRole && `Support Role: ${supportRole.name}`,
     resolvedTag && `Resolved Tag: ${resolvedTag}`,
     inactiveTag && `Inactive Tag: ${inactiveTag}`,
+    excludedTags&&  `excluded Tags: ${excludedTags}`
   ]
     .filter(Boolean)
     .join(" | ");
