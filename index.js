@@ -158,14 +158,6 @@ client.on("messageCreate", (message) => {
   }
 });
 
-client.on("guildMemberAdd", (member) => {
-  setTimeout(() => {
-    if (!member.roles.cache.has(config.unverifiedRoleId)) {
-      member.roles.add(config.unverifiedRoleId).catch(console.error);
-    }
-  }, 5000);
-});
-
 client.on("interactionCreate", async (interaction) => {
   if (interaction.isButton()) {
     await handleButtonInteraction(interaction);
