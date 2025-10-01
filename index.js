@@ -348,6 +348,7 @@ async function checkInactivity() {
 
     for (const [id, thread] of threads.threads) {
       if (thread.archived) continue;
+      if (checkAnyExcludedTags(thread.appliedTags)) return;
 
       let lastTime = lastActivity.get(id);
       if (!lastTime) {
