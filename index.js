@@ -332,6 +332,7 @@ async function applyTag(thread, tagId) {
   if (!tagId) return;
 
   const existingTags = thread.appliedTags;
+if (existingTags.lenght >= 5) return;
   if (!existingTags.includes(tagId)) {
     await thread.setAppliedTags([...existingTags, tagId]);
   }
