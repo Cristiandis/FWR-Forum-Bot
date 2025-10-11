@@ -16,8 +16,8 @@ const fs = require("fs");
 require("dotenv").config();
 
 //
-const JOYFUL_PRIME = 742757673790996511n;
-const JOYFUL_ROLE_ID = 1400180110400819250n;
+const JOYFUL_PRIME = "984392761929256980";
+const JOYFUL_ROLE_ID = "1426528235528912906";
 
 //
 
@@ -53,9 +53,13 @@ function checkAnyExcludedTags(appliedTags) {
  * @param {GuildMember} newMember
  */
 client.on('guildMemberUpdate', (oldMember, newMember) => {
-  if (newMember.nickname && oldMember.nickname !== newMember.nickname) {
-    if ((newMember.nickname.toLowerCase().contains("joyful") || newMember.id === JOYFUL_PRIME) && !newMember.roles.cache.has(JOYFUL_ROLE_ID)) {
-      
+  if (oldMember?.nickname !== newMember?.nickname) { // we want to also capture when the user removes their nickname
+    const isJoyfulPrime = newMember.id === JOYFUL_PRIME;
+    const hasJoyfulRole = newMember.roles.cache.has(JOYFUL_ROLE_ID);
+    if ((newMember?.nickname?.toLowerCase()?.includes("joyful") || isJoyfulPrime) && !hasJoyfulRole) {
+      newMember.roles.add(JOYFUL_ROLE_ID);
+    } else if (hasJoyfulRole && newMember.id !== JOYFUL_PRIME) { // they aren't joyful :pensive:
+      newMember.roles.remove(JOYFUL_ROLE_ID);
     }
   }
 });
@@ -351,7 +355,7 @@ async function applyTag(thread, tagId) {
   if (!tagId) return;
 
   const existingTags = thread.appliedTags;
-if (existingTags.lenght >= 5) return;
+  if (existingTags.lenght >= 5) return;
   if (!existingTags.includes(tagId)) {
     await thread.setAppliedTags([...existingTags, tagId]);
   }
