@@ -9,10 +9,17 @@ const {
   ButtonStyle,
   MessageFlags,
   ThreadChannel,
-  Interaction
+  Interaction,
+  GuildMember
 } = require("discord.js");
 const fs = require("fs");
 require("dotenv").config();
+
+//
+const JOYFUL_PRIME = 742757673790996511n;
+const JOYFUL_ROLE_ID = 1400180110400819250n;
+
+//
 
 const config = JSON.parse(fs.readFileSync("config.json", "utf8"));
 const client = new Client({
@@ -40,6 +47,18 @@ client.once("clientReady", async () => {
 function checkAnyExcludedTags(appliedTags) {
   return (config?.excludedTags ?? []).some(tag => appliedTags.includes(tag))
 }
+
+/**
+ * @param {GuildMember} oldMember
+ * @param {GuildMember} newMember
+ */
+client.on('guildMemberUpdate', (oldMember, newMember) => {
+  if (newMember.nickname && oldMember.nickname !== newMember.nickname) {
+    if ((newMember.nickname.toLowerCase().contains("joyful") || newMember.id === JOYFUL_PRIME) && !newMember.roles.cache.has(JOYFUL_ROLE_ID)) {
+      
+    }
+  }
+});
 
 async function registerCommands() {
   const commands = [
@@ -319,8 +338,8 @@ async function handleConfigCommand(interaction) {
     supportRole && `Support Role: ${supportRole.name}`,
     resolvedTag && `Resolved Tag: ${resolvedTag}`,
     inactiveTag && `Inactive Tag: ${inactiveTag}`,
-    createTag   && `create Tag: ${createTag}`,
-    excludedTags&& `excluded Tags: ${excludedTags}`
+    createTag && `create Tag: ${createTag}`,
+    excludedTags && `excluded Tags: ${excludedTags}`
   ]
     .filter(Boolean)
     .join(" | ");
