@@ -100,7 +100,7 @@ async function registerCommands() {
       )
       .addStringOption((option) =>
         option
-          .setName("createdTag")
+          .setName("createdtag")
           .setDescription(
             "Tag ID to apply when thread is created (if the post has an excluded tag it won't be applied)",
           ),
@@ -308,7 +308,7 @@ async function handleConfigCommand(interaction) {
   const resolvedTag = interaction.options.getString("resolvedtag");
   const inactiveTag = interaction.options.getString("inactivetag");
   const excludedTags = interaction.options.getString("excludetags");
-  const createTag = interaction.options.getString("createdTag");
+  const createTag = interaction.options.getString("createdtag");
 
 
   if (!forum && !hours && !supportRole && !resolvedTag && !inactiveTag && !excludedTags && !createTag) {
@@ -351,6 +351,7 @@ async function applyTag(thread, tagId) {
   if (!tagId) return;
 
   const existingTags = thread.appliedTags;
+if (existingTags.lenght >= 5) return;
   if (!existingTags.includes(tagId)) {
     await thread.setAppliedTags([...existingTags, tagId]);
   }
