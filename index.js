@@ -9,6 +9,7 @@ const {
   ButtonStyle,
   MessageFlags,
   ThreadChannel,
+  Message,
   Interaction
 } = require("discord.js");
 const fs = require("fs");
@@ -28,6 +29,8 @@ const lastActivity = new Map();
 const threadOwners = new Map();
 let checkInterval = null;
 
+const MEMBER_REGEX = /^(?:(?:<@)?(\d{16,}))>?/
+
 client.once("clientReady", async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
@@ -36,6 +39,7 @@ client.once("clientReady", async () => {
   await loadExistingThreads();
   startCheckInterval();
 });
+
 // utility function
 function checkAnyExcludedTags(appliedTags) {
   return (config?.excludedTags ?? []).some(tag => appliedTags.includes(tag))
@@ -190,6 +194,7 @@ client.on("threadCreate", async (thread) => {
 
 client.on("messageCreate", (message) => {
   if (message.author.bot) return;
+  processCommand(message)
 
   if (
     message.channel.type === ChannelType.PublicThread &&
@@ -374,5 +379,131 @@ async function checkInactivity() {
     console.error("Check failed:", error);
   }
 }
+
+////////// custom command 
+/**
+ * 
+ * @param {string[]} authorRoles 
+ * @returns {Set<string>}
+ */
+function getManageableRoles(authorRoles) {
+  return new Set(authorRoles);
+  const allowedRolesToManage = new Set();
+
+  for (const managerRoleId of authorRoles) {
+    const manageableRoles = config.rolePermissions?.[managerRoleId];
+    if (manageableRoles) {
+      manageableRoles.forEach(id => allowedRolesToManage.add(id));
+    }
+  }
+}
+/**
+ * helper function
+ * @param {Message} message 
+ * @param {string} content 
+ * @param {string|number} color 
+ * @returns 
+ */
+function basicEmbedReply(message, content, color) {
+  const embed = new EmbedBuilder()
+    .setColor(color ?? 0x7AE582)
+    .setDescription(
+      content
+    )
+    .setTimestamp();
+  return message.reply({ embeds: [embed] })
+}
+
+function getMemberFromString(guild, member) {
+  match = MEMBER_REGEX.exec(member);
+  return guild.members.cache.get(match?.[1]);
+}
+
+/**
+ * @param {Message} message
+ * @param {string[]} args
+ * @param {"add" | "remove"} action The action to do ("add" or "remove").
+ */
+async function handleRoleCommand(message, args, action) {
+  const targetMember = getMemberFromString(args[0]);
+
+  const roleIdentifier = args.slice(1).join(" ").trim();
+
+  if (!targetMember) {
+    return basicEmbedReply(message, `Please specify a member or member ID. Usage: \`${config.prefix}role${action} [@user] <role name/id>\``);
+  }
+  
+  if (!roleIdentifier) {
+    return basicEmbedReply(message, `Please specify a role name or ID. Usage: \`${config.prefix}role${action} [@user] <role name/id>\``);
+  }
+
+  const role = message.guild.roles.cache.find(r => r.name.toLowerCase() === roleIdentifier.toLowerCase() || r.id === roleIdentifier);
+
+  if (role === undefined) {
+    return basicEmbedReply(message, `Could not find a role with the name or ID: \`${roleIdentifier}\`.`, 0x690202);
+  }
+
+  const allowedRolesToManage = getManageableRoles(message.member.roles.cache.map(r => r.id)); // get the roles the author has permissions to manage
+
+  if (!allowedRolesToManage.has(role.id)) {
+    return basicEmbedReply(message, `You are not permitted to manage the **${role.name}** role.`);
+  }
+
+  try {
+    if (action === "add") {
+      if (targetMember.roles.cache.has(role.id)) {
+        return basicEmbedReply(message, `${targetMember.displayName} already has the **${role.name}** role.`);
+      }
+      await targetMember.roles.add(role);
+      await basicEmbedReply(message, `Successfully added the **${role.name}** role to ${targetMember.displayName}.`);
+      
+    } else if (action === "remove") {
+      if (!targetMember.roles.cache.has(role.id)) {
+        return basicEmbedReply(message, `${targetMember.displayName} does not have the **${role.name}** role.`);
+      }
+      await targetMember.roles.remove(role);
+      await basicEmbedReply(message, `Successfully removed the **${role.name}** role from ${targetMember.displayName}.`);
+
+    }
+  } catch (error) {
+    console.error(`Failed to ${action} role:`, error);
+    basicEmbedReply(message, `I was unable to ${action} the role. Make sure my role is higher than the **${role.name}** role in the server roles or that it exists!`, 0x690202);
+  }
+}
+
+const addRoleCommand = (message, args, config) => handleRoleCommand(message, args, "add", config)
+const removeRoleCommand = (message, args, config) => handleRoleCommand(message, args, "remove", config);
+
+const commandFunctions = {
+  "roleadd": addRoleCommand,
+  "roleremove": removeRoleCommand,
+  "ra": addRoleCommand,
+  "rr": removeRoleCommand
+};
+
+
+/**
+ * @param {Message} message
+ */
+function processCommand(message) {
+  if (!message.guild || !config.prefix || !message.content.startsWith(config.prefix)) {
+    return;
+  }
+
+  const args = message.content.slice(config.prefix.length).trim().split(/ +/);
+  const commandName = args.shift().toLowerCase();
+
+  const command = commandFunctions[commandName];
+
+  if (command) {
+    try {
+      command(message, args);
+    } catch (error) {
+      console.error(`Error executing command ${commandName}:`, error);
+      message.reply("An error occurred while trying to execute that command.");
+    }
+  }
+}
+
 
 client.login(process.env.DISCORD_TOKEN);
