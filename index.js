@@ -10,7 +10,9 @@ const {
   MessageFlags,
   ThreadChannel,
   Message,
-  Interaction
+  Interaction,
+  RoleSelectMenuBuilder,
+  Role
 } = require("discord.js");
 const fs = require("fs");
 require("dotenv").config();
@@ -109,6 +111,11 @@ async function registerCommands() {
           ),
       )
       .setDefaultMemberPermissions("0"),
+    new SlashCommandBuilder()
+      .setName("config-role-management")
+      .setDescription("Configure role management (Admin only)")
+      .addRoleOption((option) => option.setName("role").setDescription("get specific role to manage or browse roles")
+      )
   ];
 
   try {
@@ -206,6 +213,10 @@ client.on("messageCreate", (message) => {
 });
 
 client.on("interactionCreate", async (interaction) => {
+  if (interaction.isRoleSelectMenu() && interaction.customId === 'select_role_management_menu') {
+    await handleSelectedRoleMenuInteraction(interaction);
+  }
+
   if (interaction.isButton()) {
     await handleButtonInteraction(interaction);
     return;
@@ -249,8 +260,84 @@ async function handleCommandInteraction(interaction) {
     await handleConfigCommand(interaction);
   } else if (interaction.commandName === "config-message") {
     await handleConfigMessageCommand(interaction)
+  } else if (interaction.commandName === "config-role-management") {
+
+    await handleConfigRoleManagementCommand(interaction)
   }
 }
+
+/**
+ * @param {Interaction} interaction
+ */
+async function handleConfigRoleManagementCommand(interaction) {
+  const theRole = interaction.options.getRole("role");
+  if (!theRole) {
+    const embed = new EmbedBuilder()
+      .setColor(0x5865f2)
+      .setTitle("Role Management configuration")
+      .setDescription(
+        "I like chips"
+      )
+      .setTimestamp();
+
+    const selectMenu = new RoleSelectMenuBuilder()
+      .setCustomId("select_role_management_menu")
+      .setPlaceholder("Select a Role")
+      .setMinValues(1)
+      .setMaxValues(1);
+    //selectMenu.addRoleOption?
+    const actionRow = new ActionRowBuilder().addComponents(selectMenu);
+
+    interaction.reply({ embeds: [embed], components: [actionRow], flags: MessageFlags.Ephemeral });
+  } else {
+    handleSelectedRoleMenuInteraction(interaction, theRole);
+  }
+
+}
+
+
+/**
+ * @param {Interaction} interaction
+ * @param {Role?} interrole
+ */
+async function handleSelectedRoleMenuInteraction(interaction, interrole) {
+  const selectedRoleId = interaction?.values?.[0] || interrole.id;
+  const role = interaction.guild.roles.cache.get(selectedRoleId);
+  let description = role ? `You selected the role: ${role.name}` : "Role not found."
+  let components = []
+  if (role) {
+    const listOfRoles = Array.from(getManageableRolesByRole(role.id).values())
+
+    const selectMenu = new RoleSelectMenuBuilder()
+      .setCustomId("role_management_select_roles_menu")
+      .setPlaceholder("Select few Roles to give current role management power over them!")
+      .setMinValues(1).setMaxValues(25);
+     
+    if (listOfRoles && listOfRoles.length !== 0 ) {
+      description += `\n**Manageable Roles by ${role.toString()}**. \n\n` + listOfRoles.map((id) => `<@&${id}>`).join("\n");
+      selectMenu.addDefaultRoles(...listOfRoles)
+    }
+    else {
+      description += `\n${role.toString()} does not manage any roles currently!`
+    }    
+    const actionRow = new ActionRowBuilder().addComponents(selectMenu);
+    components.push(actionRow);
+  }
+  const embed = new EmbedBuilder()
+    .setColor(role ? 0x7AE582 : 0x690202)
+    .setTitle("Role Management configuration")
+    .setDescription(
+      description
+    )
+    .setTimestamp();
+  try {
+    await interaction.reply({ embeds: [embed], "components": components, flags: MessageFlags.Ephemeral });
+  } catch (error) {
+    console.error(error);
+    await interaction.reply({ content: "error occurred!", "components": components, flags: MessageFlags.Ephemeral });
+  }
+}
+
 /**
  * @param {Interaction} interaction
  */
@@ -324,8 +411,8 @@ async function handleConfigCommand(interaction) {
     supportRole && `Support Role: ${supportRole.name}`,
     resolvedTag && `Resolved Tag: ${resolvedTag}`,
     inactiveTag && `Inactive Tag: ${inactiveTag}`,
-    createTag   && `create Tag: ${createTag}`,
-    excludedTags&& `excluded Tags: ${excludedTags}`
+    createTag && `create Tag: ${createTag}`,
+    excludedTags && `excluded Tags: ${excludedTags}`
   ]
     .filter(Boolean)
     .join(" | ");
@@ -337,7 +424,7 @@ async function applyTag(thread, tagId) {
   if (!tagId) return;
 
   const existingTags = thread.appliedTags;
-if (existingTags.lenght >= 5) return;
+  if (existingTags.length >= 5) return;
   if (!existingTags.includes(tagId)) {
     await thread.setAppliedTags([...existingTags, tagId]);
   }
@@ -383,20 +470,29 @@ async function checkInactivity() {
 ////////// custom command 
 /**
  * 
- * @param {string[]} authorRoles 
+ * @param {string[]} roles 
  * @returns {Set<string>}
  */
-function getManageableRoles(authorRoles) {
-  return new Set(authorRoles);
+function getAllManageableRolesByRoles(roles) {
+  return new Set(roles);
   const allowedRolesToManage = new Set();
 
-  for (const managerRoleId of authorRoles) {
+  for (const managerRoleId of roles) {
     const manageableRoles = config.rolePermissions?.[managerRoleId];
     if (manageableRoles) {
       manageableRoles.forEach(id => allowedRolesToManage.add(id));
     }
   }
 }
+/**
+ * 
+ * @param {string[]} roles
+ * @returns {Set<string>}
+ */
+function getManageableRolesByRole(role) {
+  return new Set(config?.rolePermissions?.[role]);
+}
+
 /**
  * helper function
  * @param {Message} message 
@@ -432,7 +528,7 @@ async function handleRoleCommand(message, args, action) {
   if (!targetMember) {
     return basicEmbedReply(message, `Please specify a member or member ID. Usage: \`${config.prefix}role${action} [@user] <role name/id>\``);
   }
-  
+
   if (!roleIdentifier) {
     return basicEmbedReply(message, `Please specify a role name or ID. Usage: \`${config.prefix}role${action} [@user] <role name/id>\``);
   }
@@ -443,7 +539,7 @@ async function handleRoleCommand(message, args, action) {
     return basicEmbedReply(message, `Could not find a role with the name or ID: \`${roleIdentifier}\`.`, 0x690202);
   }
 
-  const allowedRolesToManage = getManageableRoles(message.member.roles.cache.map(r => r.id)); // get the roles the author has permissions to manage
+  const allowedRolesToManage = getAllManageableRolesByRoles(message.member.roles.cache.map(r => r.id)); // get the roles the author has permissions to manage
 
   if (!allowedRolesToManage.has(role.id)) {
     return basicEmbedReply(message, `You are not permitted to manage the **${role.name}** role.`);
@@ -456,7 +552,7 @@ async function handleRoleCommand(message, args, action) {
       }
       await targetMember.roles.add(role);
       await basicEmbedReply(message, `Successfully added the **${role.name}** role to ${targetMember.displayName}.`);
-      
+
     } else if (action === "remove") {
       if (!targetMember.roles.cache.has(role.id)) {
         return basicEmbedReply(message, `${targetMember.displayName} does not have the **${role.name}** role.`);
@@ -485,7 +581,7 @@ const commandFunctions = {
 /**
  * @param {Message} message
  */
-function processCommand(message) {
+async function processCommand(message) {
   if (!message.guild || !config.prefix || !message.content.startsWith(config.prefix)) {
     return;
   }
