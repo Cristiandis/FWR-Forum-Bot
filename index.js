@@ -36,6 +36,7 @@ client.once("clientReady", async () => {
   await loadExistingThreads();
   startCheckInterval();
 });
+
 // utility function
 function checkAnyExcludedTags(appliedTags) {
   return (config?.excludedTags ?? []).some(tag => appliedTags.includes(tag))
@@ -128,7 +129,7 @@ async function loadExistingThreads() {
     const threads = await forum.threads.fetchActive();
 
     for (const [id, thread] of threads.threads) {
-      if (checkAnyExcludedTags(thread.appliedTags)) return;
+      if (checkAnyExcludedTags(thread.appliedTags)) continue;
       threadOwners.set(id, thread.ownerId);
     }
 
@@ -194,7 +195,7 @@ client.on("messageCreate", (message) => {
   if (
     message.channel.type === ChannelType.PublicThread &&
     message.channel.parentId === config.supportForumChannelId &&
-    checkAnyExcludedTags(message.channel.appliedTags)
+    !checkAnyExcludedTags(message.channel.appliedTags)
   ) {
     lastActivity.set(message.channel.id, Date.now());
   }
@@ -332,7 +333,7 @@ async function applyTag(thread, tagId) {
   if (!tagId) return;
 
   const existingTags = thread.appliedTags;
-if (existingTags.lenght >= 5) return;
+  if (existingTags.length >= 5) return;
   if (!existingTags.includes(tagId)) {
     await thread.setAppliedTags([...existingTags, tagId]);
   }
@@ -349,7 +350,7 @@ async function checkInactivity() {
 
     for (const [id, thread] of threads.threads) {
       if (thread.archived) continue;
-      if (checkAnyExcludedTags(thread.appliedTags)) return;
+      if (checkAnyExcludedTags(thread.appliedTags)) continue;
 
       let lastTime = lastActivity.get(id);
       if (!lastTime) {
