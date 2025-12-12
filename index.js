@@ -9,7 +9,10 @@ const {
   ButtonStyle,
   MessageFlags,
   ThreadChannel,
-  Interaction
+  Message,
+  Interaction,
+  RoleSelectMenuBuilder,
+  Role
 } = require("discord.js");
 const fs = require("fs");
 require("dotenv").config();
@@ -27,6 +30,8 @@ const client = new Client({
 const lastActivity = new Map();
 const threadOwners = new Map();
 let checkInterval = null;
+
+const MEMBER_REGEX = /^(?:(?:<@)?(\d{16,}))>?/
 
 client.once("clientReady", async () => {
   console.log(`Logged in as ${client.user.tag}`);
@@ -106,6 +111,21 @@ async function registerCommands() {
           ),
       )
       .setDefaultMemberPermissions("0"),
+    new SlashCommandBuilder()
+      .setName("config-role-management")
+      .setDescription("Configure role management (Admin only)")
+      .addRoleOption((option) => option.setName("role").setDescription("get specific role to manage or browse roles")
+      )
+      .setDefaultMemberPermissions("0"),
+    new SlashCommandBuilder()
+      .setName("config-prefix")
+      .setDescription("change bot prefix")
+      .addStringOption((option) => 
+        option
+      .setName("prefix")
+      .setDescription("new prefix")
+      .setRequired(true)
+      ).setDefaultMemberPermissions("0")
   ];
 
   try {
@@ -191,6 +211,7 @@ client.on("threadCreate", async (thread) => {
 
 client.on("messageCreate", (message) => {
   if (message.author.bot) return;
+  processCommand(message)
 
   if (
     message.channel.type === ChannelType.PublicThread &&
@@ -202,6 +223,14 @@ client.on("messageCreate", (message) => {
 });
 
 client.on("interactionCreate", async (interaction) => {
+  if (interaction.isRoleSelectMenu() && interaction.customId === 'select_role_management_menu') {
+    await handleSelectedRoleMenuInteraction(interaction);
+  }
+
+  if (interaction.isRoleSelectMenu() && interaction.customId === "role_management_select_roles_menu") {
+    await handleSelectedRolesInteraction(interaction);
+  }
+
   if (interaction.isButton()) {
     await handleButtonInteraction(interaction);
     return;
@@ -245,8 +274,123 @@ async function handleCommandInteraction(interaction) {
     await handleConfigCommand(interaction);
   } else if (interaction.commandName === "config-message") {
     await handleConfigMessageCommand(interaction)
+  } else if (interaction.commandName === "config-role-management") {
+    await handleConfigRoleManagementCommand(interaction)
+  } else if (interaction.commandName == "config-prefix") {
+    await handleConfigPrefixCommand(interaction);
   }
 }
+
+/**
+ * @param {Interaction} interaction
+ */
+async function handleConfigPrefixCommand(interaction) {
+  const prefix = interaction.options.getString("prefix");
+  config.prefix = prefix;
+  fs.writeFileSync("config.json", JSON.stringify(config, null, 2));
+  const embed = new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle(`Prefix configuration ${prefix}`)
+  interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+}
+
+
+/**
+ * @param {Interaction} interaction
+ */
+async function handleConfigRoleManagementCommand(interaction) {
+  const theRole = interaction.options.getRole("role");
+  if (!theRole) {
+    const embed = new EmbedBuilder()
+      .setColor(0x5865f2)
+      .setTitle("Role Management configuration")
+      .setDescription(
+        "select the role to manage!"
+      )
+      .setTimestamp();
+
+    const selectMenu = new RoleSelectMenuBuilder()
+      .setCustomId("select_role_management_menu")
+      .setPlaceholder("Select a Role")
+      .setMinValues(1)
+      .setMaxValues(1);
+    //selectMenu.addRoleOption?
+    const actionRow = new ActionRowBuilder().addComponents(selectMenu);
+
+    interaction.reply({ embeds: [embed], components: [actionRow], flags: MessageFlags.Ephemeral });
+  } else {
+    handleSelectedRoleMenuInteraction(interaction, theRole);
+  }
+}
+
+
+/**
+ * @param {Interaction} interaction
+ * @param {Role?} interrole
+ */
+async function handleSelectedRoleMenuInteraction(interaction, interrole) {
+  const selectedRoleId = interaction?.values?.[0] || interrole.id;
+  const role = interaction.guild.roles.cache.get(selectedRoleId);
+  let description = role ? `You selected the role: ${role.name}` : "Role not found."
+  let components = []
+  if (role) {
+    const listOfRoles = Array.from(getManageableRolesByRole(role.id).values())
+
+    const selectMenu = new RoleSelectMenuBuilder()
+      .setCustomId("role_management_select_roles_menu")
+      .setPlaceholder("Select few Roles to give current role management power over them!")
+      .setMinValues(0).setMaxValues(25); // we are limited to 25 by discord api
+     
+    if (listOfRoles && listOfRoles.length !== 0 ) {
+      description += `\n**Manageable Roles by ${role.toString()}**. \n\n` + listOfRoles.map((id) => `<@&${id}>`).join("\n");
+      selectMenu.addDefaultRoles(...listOfRoles.slice(0, 25)); // we are only limited to 25
+    }
+    else {
+      description += `\n${role.toString()} does not manage any roles currently!`
+    }    
+    const actionRow = new ActionRowBuilder().addComponents(selectMenu);
+    components.push(actionRow);
+  }
+  const embed = new EmbedBuilder()
+    .setColor(role ? 0x7AE582 : 0x690202)
+    .setTitle("Role Management configuration")
+    .setDescription(
+      description
+    ).setFooter({text: role.id})
+    .setTimestamp();
+  try {
+    await interaction.reply({ embeds: [embed], "components": components, flags: MessageFlags.Ephemeral });
+  } catch (error) {
+    console.error(error);
+    await interaction.reply({ content: "error occurred!", "components": components, flags: MessageFlags.Ephemeral });
+  }
+}
+
+/**
+ * @param {Interaction} interaction
+ */
+async function handleSelectedRolesInteraction(interaction) {
+  const role = interaction.guild.roles.cache.get(interaction.message?.embeds?.[0]?.footer?.text);
+  const roles = interaction?.values;
+  const embed = new EmbedBuilder()
+    .setColor(role ? 0x7AE582 : 0x690202)
+    .setTitle(role ? "Roles has been configured!" : "Failed to configure roles")
+    .setTimestamp();
+  if (role && roles && config?.rolePermissions) {
+    config.rolePermissions[role.id] = roles;
+    fs.writeFileSync("config.json", JSON.stringify(config, null, 2));
+  } else {
+    console.warn("something went wrong when adding roles to the config");
+  }
+  
+  try {
+    await interaction.update({ embeds: [embed], components: [], flags: MessageFlags.Ephemeral });
+  } catch (error) {
+    console.error(error);
+    await interaction.reply({ content: "error occurred!", "components": components, flags: MessageFlags.Ephemeral });
+  }
+}
+
 /**
  * @param {Interaction} interaction
  */
@@ -320,8 +464,8 @@ async function handleConfigCommand(interaction) {
     supportRole && `Support Role: ${supportRole.name}`,
     resolvedTag && `Resolved Tag: ${resolvedTag}`,
     inactiveTag && `Inactive Tag: ${inactiveTag}`,
-    createTag   && `create Tag: ${createTag}`,
-    excludedTags&& `excluded Tags: ${excludedTags}`
+    createTag && `create Tag: ${createTag}`,
+    excludedTags && `excluded Tags: ${excludedTags}`
   ]
     .filter(Boolean)
     .join(" | ");
@@ -375,5 +519,157 @@ async function checkInactivity() {
     console.error("Check failed:", error);
   }
 }
+
+////////// custom command 
+/**
+ * 
+ * @param {string[]} roles 
+ * @returns {Set<string>}
+ */
+function getAllManageableRolesByRoles(roles) {
+  //return new Set(roles);
+  const allowedRolesToManage = new Set();
+
+  for (const managerRoleId of roles) {
+    const manageableRoles = getManageableRolesByRole(managerRoleId); // an Array<string>
+    if (manageableRoles) {
+      manageableRoles.forEach(id => allowedRolesToManage.add(id));
+    }
+  }
+  return allowedRolesToManage;
+}
+
+/**
+ * 
+ * @param {string[]} roles
+ * @returns {Set<string>}
+ */
+function getManageableRolesByRole(role) {
+  return new Set(config?.rolePermissions?.[role]);
+}
+
+function getAllowedRoles() {
+  return Object.keys(config?.rolePermissions);
+}
+
+/**
+ * helper function
+ * @param {Message} message 
+ * @param {string} content 
+ * @param {string|number} color 
+ * @returns 
+ */
+function basicEmbedReply(message, content, color) {
+  const embed = new EmbedBuilder()
+    .setColor(color ?? 0x7AE582)
+    .setDescription(
+      content
+    )
+    .setTimestamp();
+  return message.reply({ embeds: [embed] })
+}
+
+function getMemberFromString(guild, member) {
+  match = MEMBER_REGEX.exec(member);
+  return guild.members.cache.get(match?.[1]);
+}
+
+/**
+ * @param {Message} message
+ * @param {string[]} args
+ * @param {"add" | "remove"} action The action to do ("add" or "remove").
+ */
+async function handleRoleCommand(message, args, action) {
+  if (!message.guild) {
+    return basicEmbedReply(message, `you must be in a guild to use this command.`);
+  }
+  const targetMember = getMemberFromString(message.guild, args[0]);
+
+  const roleIdentifier = args.slice(1).join(" ").trim();
+
+  const authorRoles = message.member.roles.cache.map(r => r.id);
+  const allowedRoles = getAllowedRoles(message.guild);
+
+  // does the author have access to this command? any normal member should not be able to tinker with this
+  if (!authorRoles.some(role => allowedRoles.includes(role))) {
+    return basicEmbedReply(message, `you are not permitted to use this command.`);
+  }
+
+  if (!targetMember) {
+    return basicEmbedReply(message, `Please specify a member or member ID. Usage: \`${config.prefix}role${action} [@user] <role name/id>\``);
+  }
+
+  if (!roleIdentifier) {
+    return basicEmbedReply(message, `Please specify a role name or ID. Usage: \`${config.prefix}role${action} [@user] <role name/id>\``);
+  }
+
+  const role = message.guild.roles.cache.find(r => r.name.toLowerCase() === roleIdentifier.toLowerCase() || r.id === roleIdentifier);
+
+  if (role === undefined) {
+    return basicEmbedReply(message, `Could not find a role with the name or ID: \`${roleIdentifier}\`.`, 0x690202);
+  }
+
+  const allowedRolesToManage = getAllManageableRolesByRoles(authorRoles); // get the roles the author has permissions to manage
+
+  if (!allowedRolesToManage.has(role.id)) {
+    return basicEmbedReply(message, `You are not permitted to manage the **${role.name}** role.`);
+  }
+
+  try {
+    if (action === "add") {
+      if (targetMember.roles.cache.has(role.id)) {
+        return basicEmbedReply(message, `${targetMember.displayName} already has the **${role.name}** role.`);
+      }
+      await targetMember.roles.add(role);
+      await basicEmbedReply(message, `Successfully added the **${role.name}** role to ${targetMember.displayName}.`);
+
+    } else if (action === "remove") {
+      if (!targetMember.roles.cache.has(role.id)) {
+        return basicEmbedReply(message, `${targetMember.displayName} does not have the **${role.name}** role.`);
+      }
+      await targetMember.roles.remove(role);
+      await basicEmbedReply(message, `Successfully removed the **${role.name}** role from ${targetMember.displayName}.`);
+
+    }
+  } catch (error) {
+    console.error(`Failed to ${action} role:`, error);
+    basicEmbedReply(message, `I was unable to ${action} the role. Make sure my role is higher than the **${role.name}** role in the server roles or that it exists!`, 0x690202);
+  }
+}
+
+const addRoleCommand = (message, args, config) => handleRoleCommand(message, args, "add", config)
+const removeRoleCommand = (message, args, config) => handleRoleCommand(message, args, "remove", config);
+
+const commandFunctions = {
+  "roleadd": addRoleCommand,
+  "roleremove": removeRoleCommand,
+  "ra": addRoleCommand,
+  "rr": removeRoleCommand
+};
+
+
+/**
+ * @param {Message} message
+ */
+async function processCommand(message) {
+  if (!message.guild || !config.prefix || !message.content.startsWith(config.prefix)) {
+    return;
+  }
+
+  const args = message.content.slice(config.prefix.length).trim().split(/ +/);
+  const commandName = args.shift().toLowerCase();
+
+  const command = commandFunctions[commandName];
+
+  if (command) {
+    try {
+      command(message, args);
+    } catch (error) {
+      console.error(`Error executing command ${commandName}:`, error);
+      message.reply("An error occurred while trying to execute that command.");
+    }
+  }
+}
+
 
 client.login(process.env.DISCORD_TOKEN);
