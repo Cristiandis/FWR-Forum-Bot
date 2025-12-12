@@ -288,6 +288,10 @@ async function handleConfigPrefixCommand(interaction) {
   const prefix = interaction.options.getString("prefix");
   config.prefix = prefix;
   fs.writeFileSync("config.json", JSON.stringify(config, null, 2));
+  const embed = new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle(`Prefix configuration ${prefix}`)
+  interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
 }
 
 
@@ -532,7 +536,9 @@ function getAllManageableRolesByRoles(roles) {
       manageableRoles.forEach(id => allowedRolesToManage.add(id));
     }
   }
+  return allowedRolesToManage;
 }
+
 /**
  * 
  * @param {string[]} roles
@@ -540,6 +546,10 @@ function getAllManageableRolesByRoles(roles) {
  */
 function getManageableRolesByRole(role) {
   return new Set(config?.rolePermissions?.[role]);
+}
+
+function getAllowedRoles() {
+  return Object.keys(config?.rolePermissions);
 }
 
 /**
@@ -570,9 +580,20 @@ function getMemberFromString(guild, member) {
  * @param {"add" | "remove"} action The action to do ("add" or "remove").
  */
 async function handleRoleCommand(message, args, action) {
-  const targetMember = getMemberFromString(args[0]);
+  if (!message.guild) {
+    return basicEmbedReply(message, `you must be in a guild to use this command.`);
+  }
+  const targetMember = getMemberFromString(message.guild, args[0]);
 
   const roleIdentifier = args.slice(1).join(" ").trim();
+
+  const authorRoles = message.member.roles.cache.map(r => r.id);
+  const allowedRoles = getAllowedRoles(message.guild);
+
+  // does the author have access to this command? any normal member should not be able to tinker with this
+  if (!authorRoles.some(role => allowedRoles.includes(role))) {
+    return basicEmbedReply(message, `you are not permitted to use this command.`);
+  }
 
   if (!targetMember) {
     return basicEmbedReply(message, `Please specify a member or member ID. Usage: \`${config.prefix}role${action} [@user] <role name/id>\``);
@@ -588,7 +609,7 @@ async function handleRoleCommand(message, args, action) {
     return basicEmbedReply(message, `Could not find a role with the name or ID: \`${roleIdentifier}\`.`, 0x690202);
   }
 
-  const allowedRolesToManage = getAllManageableRolesByRoles(message.member.roles.cache.map(r => r.id)); // get the roles the author has permissions to manage
+  const allowedRolesToManage = getAllManageableRolesByRoles(authorRoles); // get the roles the author has permissions to manage
 
   if (!allowedRolesToManage.has(role.id)) {
     return basicEmbedReply(message, `You are not permitted to manage the **${role.name}** role.`);
