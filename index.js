@@ -116,6 +116,16 @@ async function registerCommands() {
       .setDescription("Configure role management (Admin only)")
       .addRoleOption((option) => option.setName("role").setDescription("get specific role to manage or browse roles")
       )
+      .setDefaultMemberPermissions("0"),
+    new SlashCommandBuilder()
+      .setName("config-prefix")
+      .setDescription("change bot prefix")
+      .addStringOption((option) => 
+        option
+      .setName("prefix")
+      .setDescription("new prefix")
+      .setRequired(true)
+      ).setDefaultMemberPermissions("0")
   ];
 
   try {
@@ -217,6 +227,10 @@ client.on("interactionCreate", async (interaction) => {
     await handleSelectedRoleMenuInteraction(interaction);
   }
 
+  if (interaction.isRoleSelectMenu() && interaction.customId === "role_management_select_roles_menu") {
+    await handleSelectedRolesInteraction(interaction);
+  }
+
   if (interaction.isButton()) {
     await handleButtonInteraction(interaction);
     return;
@@ -261,10 +275,21 @@ async function handleCommandInteraction(interaction) {
   } else if (interaction.commandName === "config-message") {
     await handleConfigMessageCommand(interaction)
   } else if (interaction.commandName === "config-role-management") {
-
     await handleConfigRoleManagementCommand(interaction)
+  } else if (interaction.commandName == "config-prefix") {
+    await handleConfigPrefixCommand(interaction);
   }
 }
+
+/**
+ * @param {Interaction} interaction
+ */
+async function handleConfigPrefixCommand(interaction) {
+  const prefix = interaction.options.getString("prefix");
+  config.prefix = prefix;
+  fs.writeFileSync("config.json", JSON.stringify(config, null, 2));
+}
+
 
 /**
  * @param {Interaction} interaction
@@ -276,7 +301,7 @@ async function handleConfigRoleManagementCommand(interaction) {
       .setColor(0x5865f2)
       .setTitle("Role Management configuration")
       .setDescription(
-        "I like chips"
+        "select the role to manage!"
       )
       .setTimestamp();
 
@@ -292,7 +317,6 @@ async function handleConfigRoleManagementCommand(interaction) {
   } else {
     handleSelectedRoleMenuInteraction(interaction, theRole);
   }
-
 }
 
 
@@ -311,11 +335,11 @@ async function handleSelectedRoleMenuInteraction(interaction, interrole) {
     const selectMenu = new RoleSelectMenuBuilder()
       .setCustomId("role_management_select_roles_menu")
       .setPlaceholder("Select few Roles to give current role management power over them!")
-      .setMinValues(1).setMaxValues(25);
+      .setMinValues(0).setMaxValues(25); // we are limited to 25 by discord api
      
     if (listOfRoles && listOfRoles.length !== 0 ) {
       description += `\n**Manageable Roles by ${role.toString()}**. \n\n` + listOfRoles.map((id) => `<@&${id}>`).join("\n");
-      selectMenu.addDefaultRoles(...listOfRoles)
+      selectMenu.addDefaultRoles(...listOfRoles.slice(0, 25)); // we are only limited to 25
     }
     else {
       description += `\n${role.toString()} does not manage any roles currently!`
@@ -328,10 +352,35 @@ async function handleSelectedRoleMenuInteraction(interaction, interrole) {
     .setTitle("Role Management configuration")
     .setDescription(
       description
-    )
+    ).setFooter({text: role.id})
     .setTimestamp();
   try {
     await interaction.reply({ embeds: [embed], "components": components, flags: MessageFlags.Ephemeral });
+  } catch (error) {
+    console.error(error);
+    await interaction.reply({ content: "error occurred!", "components": components, flags: MessageFlags.Ephemeral });
+  }
+}
+
+/**
+ * @param {Interaction} interaction
+ */
+async function handleSelectedRolesInteraction(interaction) {
+  const role = interaction.guild.roles.cache.get(interaction.message?.embeds?.[0]?.footer?.text);
+  const roles = interaction?.values;
+  const embed = new EmbedBuilder()
+    .setColor(role ? 0x7AE582 : 0x690202)
+    .setTitle(role ? "Roles has been configured!" : "Failed to configure roles")
+    .setTimestamp();
+  if (role && roles && config?.rolePermissions) {
+    config.rolePermissions[role.id] = roles;
+    fs.writeFileSync("config.json", JSON.stringify(config, null, 2));
+  } else {
+    console.warn("something went wrong when adding roles to the config");
+  }
+  
+  try {
+    await interaction.update({ embeds: [embed], components: [], flags: MessageFlags.Ephemeral });
   } catch (error) {
     console.error(error);
     await interaction.reply({ content: "error occurred!", "components": components, flags: MessageFlags.Ephemeral });
@@ -474,11 +523,11 @@ async function checkInactivity() {
  * @returns {Set<string>}
  */
 function getAllManageableRolesByRoles(roles) {
-  return new Set(roles);
+  //return new Set(roles);
   const allowedRolesToManage = new Set();
 
   for (const managerRoleId of roles) {
-    const manageableRoles = config.rolePermissions?.[managerRoleId];
+    const manageableRoles = getManageableRolesByRole(managerRoleId); // an Array<string>
     if (manageableRoles) {
       manageableRoles.forEach(id => allowedRolesToManage.add(id));
     }
