@@ -149,7 +149,7 @@ async function loadExistingThreads() {
     const threads = await forum.threads.fetchActive();
 
     for (const [id, thread] of threads.threads) {
-      if (checkAnyExcludedTags(thread.appliedTags)) return;
+      if (checkAnyExcludedTags(thread.appliedTags)) continue;
       threadOwners.set(id, thread.ownerId);
     }
 
@@ -216,7 +216,7 @@ client.on("messageCreate", (message) => {
   if (
     message.channel.type === ChannelType.PublicThread &&
     message.channel.parentId === config.supportForumChannelId &&
-    checkAnyExcludedTags(message.channel.appliedTags)
+    !checkAnyExcludedTags(message.channel.appliedTags)
   ) {
     lastActivity.set(message.channel.id, Date.now());
   }
@@ -494,7 +494,7 @@ async function checkInactivity() {
 
     for (const [id, thread] of threads.threads) {
       if (thread.archived) continue;
-      if (checkAnyExcludedTags(thread.appliedTags)) return;
+      if (checkAnyExcludedTags(thread.appliedTags)) continue;
 
       let lastTime = lastActivity.get(id);
       if (!lastTime) {
