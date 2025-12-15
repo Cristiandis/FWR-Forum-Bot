@@ -4,5 +4,7 @@
   "supportRoleId": "",
   "unverifiedRoleId": "",
   "resolvedTagId": "",
-  "inactiveTagId": ""
+  "inactiveTagId": "",
+  "rolePermissions": {},
+  "prefix": "v"
 }
