@@ -591,7 +591,8 @@ async function handleRoleCommand(message, args, action) {
   const allowedRoles = getAllowedRoles(message.guild);
 
   // does the author have access to this command? any normal member should not be able to tinker with this
-  if (!authorRoles.some(role => allowedRoles.includes(role))) {
+  if (!message.member.permissions.has("Administrator") 
+    && !authorRoles.some(role => allowedRoles.includes(role))) {
     return basicEmbedReply(message, `you are not permitted to use this command.`);
   }
 
@@ -610,6 +611,10 @@ async function handleRoleCommand(message, args, action) {
   }
 
   const allowedRolesToManage = getAllManageableRolesByRoles(authorRoles); // get the roles the author has permissions to manage
+  
+  if (message.member.permissions.has("Administrator")) {
+    message.guild.roles.cache.forEach(role => allowedRolesToManage.add(role.id));
+  }
 
   if (!allowedRolesToManage.has(role.id)) {
     return basicEmbedReply(message, `You are not permitted to manage the **${role.name}** role.`);
