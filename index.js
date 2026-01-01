@@ -649,7 +649,9 @@ const commandFunctions = {
   "roleadd": addRoleCommand,
   "roleremove": removeRoleCommand,
   "ra": addRoleCommand,
-  "rr": removeRoleCommand
+  "rr": removeRoleCommand,
+  "+": addRoleCommand,
+  "-": removeRoleCommand
 };
 
 
