@@ -120,11 +120,11 @@ async function registerCommands() {
     new SlashCommandBuilder()
       .setName("config-prefix")
       .setDescription("change bot prefix")
-      .addStringOption((option) => 
+      .addStringOption((option) =>
         option
-      .setName("prefix")
-      .setDescription("new prefix")
-      .setRequired(true)
+          .setName("prefix")
+          .setDescription("new prefix")
+          .setRequired(true)
       ).setDefaultMemberPermissions("0")
   ];
 
@@ -340,14 +340,14 @@ async function handleSelectedRoleMenuInteraction(interaction, interrole) {
       .setCustomId("role_management_select_roles_menu")
       .setPlaceholder("Select few Roles to give current role management power over them!")
       .setMinValues(0).setMaxValues(25); // we are limited to 25 by discord api
-     
-    if (listOfRoles && listOfRoles.length !== 0 ) {
+
+    if (listOfRoles && listOfRoles.length !== 0) {
       description += `\n**Manageable Roles by ${role.toString()}**. \n\n` + listOfRoles.map((id) => `<@&${id}>`).join("\n");
       selectMenu.addDefaultRoles(...listOfRoles.slice(0, 25)); // we are only limited to 25
     }
     else {
       description += `\n${role.toString()} does not manage any roles currently!`
-    }    
+    }
     const actionRow = new ActionRowBuilder().addComponents(selectMenu);
     components.push(actionRow);
   }
@@ -356,7 +356,7 @@ async function handleSelectedRoleMenuInteraction(interaction, interrole) {
     .setTitle("Role Management configuration")
     .setDescription(
       description
-    ).setFooter({text: role.id})
+    ).setFooter({ text: role.id })
     .setTimestamp();
   try {
     await interaction.reply({ embeds: [embed], "components": components, flags: MessageFlags.Ephemeral });
@@ -382,7 +382,7 @@ async function handleSelectedRolesInteraction(interaction) {
   } else {
     console.warn("something went wrong when adding roles to the config");
   }
-  
+
   try {
     await interaction.update({ embeds: [embed], components: [], flags: MessageFlags.Ephemeral });
   } catch (error) {
@@ -580,18 +580,38 @@ function getMemberFromString(guild, member) {
  * @param {"add" | "remove"} action The action to do ("add" or "remove").
  */
 async function handleRoleCommand(message, args, action) {
-  if (!message.guild) {
+  const { guild, member, reference } = message;
+  if (!guild) {
     return basicEmbedReply(message, `you must be in a guild to use this command.`);
   }
-  const targetMember = getMemberFromString(message.guild, args[0]);
 
-  const roleIdentifier = args.slice(1).join(" ").trim();
+  let targetMember = null;
+  let roleArgsStart = 0;
 
-  const authorRoles = message.member.roles.cache.map(r => r.id);
-  const allowedRoles = getAllowedRoles(message.guild);
+  const memberFromArgs = getMemberFromString(guild, args[0]);
+
+  if (memberFromArgs) {
+    targetMember = memberFromArgs;
+    roleArgsStart = 1;
+  }
+  else if (reference) {
+    const repliedMsg = await message.channel.messages.fetch(reference.messageId);
+    targetMember = repliedMsg.member;
+    roleArgsStart = 0;
+  }
+
+  if (!targetMember) {
+    return basicEmbedReply(message, "Please specify a member (mention them or reply to their message).");
+  }
+  // 0 the entire args list is the role name, 1 after the member mention
+  const roleIdentifier = args.slice(roleArgsStart).join(" ").trim();
+
+
+  const authorRoles = member.roles.cache.map(r => r.id);
+  const allowedRoles = getAllowedRoles(guild);
 
   // does the author have access to this command? any normal member should not be able to tinker with this
-  if (!message.member.permissions.has("Administrator") 
+  if (!member.permissions.has("Administrator")
     && !authorRoles.some(role => allowedRoles.includes(role))) {
     return basicEmbedReply(message, `you are not permitted to use this command.`);
   }
@@ -604,16 +624,16 @@ async function handleRoleCommand(message, args, action) {
     return basicEmbedReply(message, `Please specify a role name or ID. Usage: \`${config.prefix}role${action} [@user] <role name/id>\``);
   }
 
-  const role = message.guild.roles.cache.find(r => r.name.toLowerCase() === roleIdentifier.toLowerCase() || r.id === roleIdentifier);
+  const role = guild.roles.cache.find(r => r.name.toLowerCase() === roleIdentifier.toLowerCase() || r.id === roleIdentifier);
 
   if (role === undefined) {
     return basicEmbedReply(message, `Could not find a role with the name or ID: \`${roleIdentifier}\`.`, 0x690202);
   }
 
   const allowedRolesToManage = getAllManageableRolesByRoles(authorRoles); // get the roles the author has permissions to manage
-  
-  if (message.member.permissions.has("Administrator")) {
-    message.guild.roles.cache.forEach(role => allowedRolesToManage.add(role.id));
+
+  if (member.permissions.has("Administrator")) {
+    guild.roles.cache.forEach(role => allowedRolesToManage.add(role.id));
   }
 
   if (!allowedRolesToManage.has(role.id)) {
