@@ -2,9 +2,17 @@
   "supportForumChannelId": "",
   "inactivityHours": 1,
   "supportRoleId": "",
-  "unverifiedRoleId": "",
   "resolvedTagId": "",
   "inactiveTagId": "",
   "rolePermissions": {},
-  "prefix": "v"
+  "prefix": "v",
+  "verify": {
+    "adminRoleIds": [],
+    "verificationPassword": "defaultpassword",
+    "verifiedRoleId": "",
+    "embedTitle": "Server Verification",
+    "embedDescription": "Click the button below to verify yourself in this server.",
+    "embedColor": "#00ff00",
+    "buttonText": "Input Password"
+  }
 }

@@ -17,6 +17,7 @@ const {
 } = require("discord.js");
 const fs = require("fs");
 require("dotenv").config();
+const registerVerifyModule = require("./modules/verification");
 
 const config = JSON.parse(fs.readFileSync("config.json", "utf8"));
 const client = new Client({
@@ -27,6 +28,8 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,
   ],
 });
+
+registerVerifyModule(client, config);
 
 const lastActivity = new Map();
 const threadOwners = new Map();
@@ -131,7 +134,13 @@ async function registerCommands() {
   ];
 
   try {
-    await client.application.commands.set(commands);
+    const existing = await client.application.commands.fetch();
+    const existingData = existing.map((c) => c.toJSON());
+    const newData = commands.map((c) => c.toJSON());
+    const merged = new Map();
+    existingData.forEach((c) => merged.set(c.name, c));
+    newData.forEach((c) => merged.set(c.name, c));
+    await client.application.commands.set(Array.from(merged.values()));
     console.log("Slash commands registered successfully");
   } catch (error) {
     console.error("Error registering commands:", error);
