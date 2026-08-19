@@ -1,6 +1,6 @@
 services:
   bot:
-    build: .
+    image: ghcr.io/cristiandis/fwr-bot:latest
     restart: unless-stopped
     env_file: .env
     volumes:
