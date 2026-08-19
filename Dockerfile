@@ -9,5 +9,6 @@ FROM base AS runner
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
+EXPOSE 8080
 USER bun
 CMD ["bun", "run", "start"]

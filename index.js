@@ -16,6 +16,7 @@ const {
   PermissionFlagsBits,
 } = require("discord.js");
 const fs = require("fs");
+const http = require("http");
 require("dotenv").config();
 
 const config = JSON.parse(fs.readFileSync("config.json", "utf8"));
@@ -800,5 +801,11 @@ async function processCommand(message) {
     }
   }
 }
+
+const port = process.env.PORT || 8080;
+http.createServer((_, res) => {
+  res.writeHead(200, { "Content-Type": "text/plain" });
+  res.end("Bot is running");
+}).listen(port, () => console.log(`Health check server listening on port ${port}`));
 
 client.login(process.env.DISCORD_TOKEN);
