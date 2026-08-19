@@ -23,8 +23,6 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers,
   ],
 });
 
@@ -121,13 +119,7 @@ async function registerCommands() {
     .setDescription("get specific role to manage or browse roles"),
     )
     .setDefaultMemberPermissions("0"),
-    new SlashCommandBuilder()
-    .setName("config-prefix")
-    .setDescription("change bot prefix")
-    .addStringOption((option) =>
-    option.setName("prefix").setDescription("new prefix").setRequired(true),
-    )
-    .setDefaultMemberPermissions("0"),
+
   ];
 
   try {
@@ -287,22 +279,7 @@ async function handleCommandInteraction(interaction) {
     await handleConfigMessageCommand(interaction);
   } else if (interaction.commandName === "config-role-management") {
     await handleConfigRoleManagementCommand(interaction);
-  } else if (interaction.commandName == "config-prefix") {
-    await handleConfigPrefixCommand(interaction);
   }
-}
-
-/**
- * @param {Interaction} interaction
- */
-async function handleConfigPrefixCommand(interaction) {
-  const prefix = interaction.options.getString("prefix");
-  config.prefix = prefix;
-  fs.writeFileSync("config.json", JSON.stringify(config, null, 2));
-  const embed = new EmbedBuilder()
-  .setColor(0x5865f2)
-  .setTitle(`Prefix configuration ${prefix}`);
-  interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
 }
 
 /**
@@ -645,9 +622,14 @@ function basicEmbedReply(message, content, color) {
   return message.reply({ embeds: [embed] });
 }
 
-function getMemberFromString(guild, member) {
-  match = MEMBER_REGEX.exec(member);
-  return guild.members.cache.get(match?.[1]);
+async function getMemberFromString(guild, member) {
+  const match = MEMBER_REGEX.exec(member);
+  if (!match?.[1]) return null;
+  try {
+    return await guild.members.fetch(match[1]);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -667,7 +649,7 @@ async function handleRoleCommand(message, args, action) {
   let targetMember = null;
   let roleArgsStart = 0;
 
-  const memberFromArgs = getMemberFromString(guild, args[0]);
+  const memberFromArgs = await getMemberFromString(guild, args[0]);
 
   if (memberFromArgs) {
     targetMember = memberFromArgs;
@@ -692,7 +674,7 @@ async function handleRoleCommand(message, args, action) {
   if (!roleIdentifier) {
     return basicEmbedReply(
       message,
-      `Please specify a role name or ID. Usage: \`${config.prefix}role${action} [@user] <role name/id>\``,
+      `Please specify a role name or ID. Usage: \`@bot role${action} [@user] <role name/id>\``,
     );
   }
 
@@ -799,15 +781,12 @@ const commandFunctions = {
  * @param {Message} message
  */
 async function processCommand(message) {
-  if (
-    !message.guild ||
-    !config.prefix ||
-    !message.content.startsWith(config.prefix)
-  ) {
-    return;
-  }
+  if (!message.guild || !message.mentions.has(client.user)) return;
 
-  const args = message.content.slice(config.prefix.length).trim().split(/ +/);
+  let content = message.content.replace(/<@!?\d+>/, '').trim();
+  if (!content) return;
+
+  const args = content.split(/ +/);
   const commandName = args.shift().toLowerCase();
 
   const command = commandFunctions[commandName];
